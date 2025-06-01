@@ -1,0 +1,10 @@
+sounddevice
+numpy
+matplotlib
+torch
+torchaudio
+transformers
+joblib
+librosa
+pyyaml
+typeguard

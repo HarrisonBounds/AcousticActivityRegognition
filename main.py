@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from collections import deque
 import threading
-import time
+import time 
 import torch
 import torchaudio
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
@@ -31,6 +31,10 @@ recording_active.set()
 current_ast_prediction = "Listening..."
 current_rf_prediction = "Waiting for RF..."
 last_prediction_time = 0
+
+# New global variables for latency
+current_ast_latency_ms = 0.0
+current_rf_latency_ms = 0.0
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
@@ -184,7 +188,8 @@ def predict_audio_ast(audio_array):
         return model.config.id2label[pred_idx], confidence
 
 def audio_callback(indata, frames, time_info, status):
-    global current_ast_prediction, current_rf_prediction, last_prediction_time, rf_label_mapping
+    global current_ast_prediction, current_rf_prediction, last_prediction_time
+    global current_ast_latency_ms, current_rf_latency_ms # Declare global for new latency variables
 
     if status:
         print(status)
@@ -202,14 +207,21 @@ def audio_callback(indata, frames, time_info, status):
             try:
                 processing_window = np.array(prediction_buffer)
 
+                # --- AST Prediction ---
+                start_time_ast = time.perf_counter() # Start timing for AST
                 ast_label, ast_confidence = predict_audio_ast(processing_window)
+                end_time_ast = time.perf_counter() # End timing for AST
+                current_ast_latency_ms = (end_time_ast - start_time_ast) * 1000 # Convert to milliseconds
+
                 current_ast_prediction = f"{ast_label} ({ast_confidence:.2f})"
 
+                # --- Random Forest Prediction ---
                 if rf_model is not None:
                     try:
+                        start_time_rf = time.perf_counter() # Start timing for RF features + prediction
                         rf_features = extract_features_for_rf_realtime(processing_window, SAMPLE_RATE)
-
                         rf_prediction_label_idx = rf_model.predict(rf_features)[0]
+
                         rf_prediction_mapped = rf_label_mapping.get(rf_prediction_label_idx, f"Unknown ({rf_prediction_label_idx})")
 
                         if hasattr(rf_model, 'predict_proba'):
@@ -219,10 +231,15 @@ def audio_callback(indata, frames, time_info, status):
                         else:
                             current_rf_prediction = f"{rf_prediction_mapped} (No Prob.)"
 
+                        end_time_rf = time.perf_counter() # End timing for RF
+                        current_rf_latency_ms = (end_time_rf - start_time_rf) * 1000 # Convert to milliseconds
+
                     except Exception as e:
                         current_rf_prediction = f"RF Error: {e}"
+                        current_rf_latency_ms = 0.0 # Reset latency on error
                 else:
                     current_rf_prediction = "RF model not loaded."
+                    current_rf_latency_ms = 0.0 # Reset latency if model not loaded
 
                 last_prediction_time = current_time
                 prediction_buffer.clear()
@@ -230,6 +247,8 @@ def audio_callback(indata, frames, time_info, status):
                 print(f"Overall Prediction error: {e}")
                 current_ast_prediction = f"AST Error: {e}"
                 current_rf_prediction = "RF Error: No Prediction"
+                current_ast_latency_ms = 0.0
+                current_rf_latency_ms = 0.0
 
 fig, (ax_wave, ax_text) = plt.subplots(2, 1, figsize=(10, 6), gridspec_kw={'height_ratios': [3, 1]})
 line, = ax_wave.plot(np.zeros(DISPLAY_WINDOW_SAMPLES), color='blue')
@@ -239,7 +258,10 @@ ax_wave.set_title("Real-time Audio Waveform")
 ax_wave.set_xlabel("Samples")
 ax_wave.set_ylabel("Amplitude")
 
-prediction_text = ax_text.text(0.5, 0.5, f"AST: {current_ast_prediction}\n{current_rf_prediction}",
+# Initial text display for both predictions and latencies
+prediction_text = ax_text.text(0.5, 0.5,
+                             f"AST: {current_ast_prediction} (Latency: {current_ast_latency_ms:.2f} ms)\n"
+                             f"RF: {current_rf_prediction} (Latency: {current_rf_latency_ms:.2f} ms)",
                              ha='center', va='center', fontsize=12)
 ax_text.axis('off')
 
@@ -254,7 +276,11 @@ def update_plot(frame):
             else:
                 line.set_ydata(plot_data)
 
-        prediction_text.set_text(f"AST: {current_ast_prediction}\nRF: {current_rf_prediction}")
+        # Update prediction text to include latencies
+        prediction_text.set_text(
+            f"AST: {current_ast_prediction} (Latency: {current_ast_latency_ms:.2f} ms)\n"
+            f"RF: {current_rf_prediction} (Latency: {current_rf_latency_ms:.2f} ms)"
+        )
 
     return line, prediction_text
 
