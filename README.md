@@ -3,27 +3,29 @@
 ### How to Run
 
 1. Clone the repo
-`
+
+```
 git clone git@github.com:HarrisonBounds/AcousticActivityRegognition.git
-`
+```
 
 2. Create a virtual environment
-`
+
+```
 cd AcousticActivityRegognition
 python3 -m venv audio_recognition_env
-`
+```
 
-3. ACtivate environment and install the  `requirements.txt`
-`
+3. Activate environment and install the  `requirements.txt`
+```
 source audio_recognition_env/bin/activate
 pip install -r requirements.txt
-`
+```
 
 3. Run the `main.py` script
-`
-python main.py
-`
 
+```
+python main.py
+```
 ---
 
 ### Pipeline
