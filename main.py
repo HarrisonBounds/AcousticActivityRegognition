@@ -12,6 +12,7 @@ import joblib
 import librosa
 from scipy.fft import fft
 
+#Sset constants for audio processing
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 1024
 WINDOW_LENGTH_SECONDS = 1.0
@@ -26,6 +27,7 @@ prediction_buffer = deque(maxlen=WINDOW_LENGTH_SAMPLES)
 
 buffer_lock = threading.Lock()
 
+#Threading for quick response
 recording_active = threading.Event()
 recording_active.set()
 current_ast_prediction = "Listening..."
@@ -36,9 +38,11 @@ last_prediction_time = 0
 current_ast_latency_ms = 0.0
 current_rf_latency_ms = 0.0
 
+# Using GPU for inference
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
+# Model declaration
 model_name = "MIT/ast-finetuned-audioset-10-10-0.4593"
 feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
 model = AutoModelForAudioClassification.from_pretrained(model_name).to(device)
@@ -48,6 +52,7 @@ RF_MODEL_FILENAME = 'random_forest_best_model.joblib'
 rf_model = None
 rf_label_mapping = {0: 'laugh', 1: 'cough', 2: 'clap', 3: 'knock', 4: 'alarm'}
 
+#Load RF model from previous assignment
 try:
     rf_model = joblib.load(RF_MODEL_FILENAME)
     print(f"Random Forest model '{RF_MODEL_FILENAME}' loaded successfully!")
@@ -56,6 +61,7 @@ except FileNotFoundError:
 except Exception as e:
     print(f"An error occurred while loading the Random Forest model: {e}. RF predictions will be unavailable.")
 
+# Extract features based on assignment 1
 def extract_fft(audio_signal, sr=16000):
     n_fft_features=4
 
@@ -155,6 +161,7 @@ def extract_rms(audio_signal, sr=16000):
     except Exception as e:
         return np.zeros(n_rms_features)
 
+# Combine features for correct identification
 def extract_features_for_rf_realtime(audio_segment, sr):
     fft_feats = extract_fft(audio_segment, sr)
     mfcc_feats = extract_mfcc(audio_segment, sr)
@@ -168,6 +175,7 @@ def extract_features_for_rf_realtime(audio_segment, sr):
 
     return combined_features.reshape(1, -1)
 
+# Use feature extractor to organize data
 def preprocess_audio_ast(audio_array):
     inputs = feature_extractor(
         audio_array,
@@ -178,6 +186,7 @@ def preprocess_audio_ast(audio_array):
     )
     return inputs.to(device)
 
+# AST prediction
 def predict_audio_ast(audio_array):
     with torch.no_grad():
         inputs = preprocess_audio_ast(audio_array)
@@ -187,6 +196,7 @@ def predict_audio_ast(audio_array):
         confidence = probs[0][pred_idx].item()
         return model.config.id2label[pred_idx], confidence
 
+# Driver function - Includes a buffer, threading, and predicition for both models
 def audio_callback(indata, frames, time_info, status):
     global current_ast_prediction, current_rf_prediction, last_prediction_time
     global current_ast_latency_ms, current_rf_latency_ms # Declare global for new latency variables
@@ -250,6 +260,7 @@ def audio_callback(indata, frames, time_info, status):
                 current_ast_latency_ms = 0.0
                 current_rf_latency_ms = 0.0
 
+# Plotting waveform and predictions
 fig, (ax_wave, ax_text) = plt.subplots(2, 1, figsize=(10, 6), gridspec_kw={'height_ratios': [3, 1]})
 line, = ax_wave.plot(np.zeros(DISPLAY_WINDOW_SAMPLES), color='blue')
 ax_wave.set_ylim([-1, 1])
@@ -265,6 +276,7 @@ prediction_text = ax_text.text(0.5, 0.5,
                              ha='center', va='center', fontsize=12)
 ax_text.axis('off')
 
+# Update the plot with available data
 def update_plot(frame):
     with buffer_lock:
         if len(audio_buffer) > 0:
@@ -284,6 +296,7 @@ def update_plot(frame):
 
     return line, prediction_text
 
+# Main script
 if __name__ == "__main__":
     print(f"Recording audio at {SAMPLE_RATE} Hz with a block size of {BLOCK_SIZE} frames.")
     print(f"Displaying {DISPLAY_WINDOW_SECONDS} seconds of audio.")
